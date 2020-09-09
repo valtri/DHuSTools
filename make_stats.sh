@@ -1,7 +1,7 @@
 #!/bin/bash
 
 STATSCRIPT="./DataHubStats_TiB.sh"
-XLS="./DHRNAME_report_referenceperiod_DataHubStats_v2.3.xlsx"
+XLS="./DHRNAME_report_referenceperiod.xlsx"
 XLSPREFIX="CRDR"
 REMOTES="./.remotes"
 NDAYS=6
@@ -9,8 +9,9 @@ TILL=`date -d "yesterday" +%Y-%m-%d`
 WRKD="/tmp"
 DRY=0
 JISSUE="https://copernicus.serco.eu/jira-osf/rest/api/2/issue/CRDR-7/attachments"
+XTRAARG=""
 
-while getopts "hdc:o:l:n:f:w:t:j:" opt; do
+while getopts "hdc:o:l:n:f:w:t:j:x:" opt; do
   case $opt in
         h)
                 printf "Collect, run and export DHuS Relay statistics\n\nUsage:\n
@@ -21,6 +22,7 @@ while getopts "hdc:o:l:n:f:w:t:j:" opt; do
 \t-n <num>\tStart reporting period <num> days\n\t\t\tBEFORE the final date (Default ${NDAYS})\n \
 \t-d      \tDry run. Do everything but do not upload to Jira.\n \
 \t-j <url>\tUpload URL (default \"${JISSUE}\")\n \
+\t-x <str>\tAny extra arguments to be handed over to curl\n \
 \t-t <Y-M-D>\t\"Till\" Date (Default \"${TILL}\")\n \
 		\n"
                 exit 0
@@ -49,6 +51,9 @@ while getopts "hdc:o:l:n:f:w:t:j:" opt; do
 	j)
 		JISSUE=$OPTARG
                 ;;
+	x)
+		XTRAARG=" $OPTARG "
+                ;;
   esac
 done
 
@@ -75,23 +80,38 @@ function check_binaries()
 	done
 }
 
+function anycat()
+{
+	mimetype=$(file -bi $1 | awk -F ";" '{print $1}')
+	case $mimetype in
+		"application/gzip") gunzip -c $1 ;;
+		"text/plain") cat $1 ;;
+		*) cat $1 ;;
+	esac
+}
+
 FROM=`date -d "${TILL}-${NDAYS} days" +%Y-%m-%d`
 WEEKTILL=`date -d "${TILL}" +%V`
 WEEKFROM=`date -d "${FROM}" +%V`
 if [ "${WEEKFROM}" == "${WEEKTILL}" ]; then
-	WEEK="${WEEKTILL}"
+	WEEK="w${WEEKTILL}"
 else
-	WEEK="${WEEKFROM}to${WEEKTILL}"
+	WEEK="w${WEEKFROM}to${WEEKTILL}"
 fi
 YEAR=`date -d "${FROM}" +%Y`
-XLSTARGET="${XLSPREFIX}_report_${FROM}_to_${TILL}_DataHubStats_v2.3.xlsx"
+XLSTARGET="${XLSPREFIX}_report_${FROM}_to_${TILL}_DataHubStats.xlsx"
 
+# Use special name if report between 1st and last day of month
+if [ `date -d ${FROM} +%m` -eq `date -d ${TILL} +%m` ] && [ `date -d ${FROM} +%d` -eq 1 ] && [ `date -d "${TILL} + 1 day" +%d` -eq 1 ]; then
+  XLSTARGET="${XLSPREFIX}_Annual_report_`date -d ${FROM} +%m`_`date -d ${FROM} +%Y`.xlsx"
+  WEEK="m`date -d ${FROM} +%m`"
+fi
 
 ##########################################
 # Step 02: Test prerequisites
 
 echo Checking prerequisites
-check_binaries sed libreoffice scp tar gzip basename date cat cp curl grep
+check_binaries sed libreoffice scp tar gzip basename date cat cp curl grep gunzip
 
 if [ ! -f $HOME/.netrc ]; then
 	echo File "$HOME/.netrc" not found. Upload to Jira would fail
@@ -149,8 +169,9 @@ while read remote; do
 	echo Downloading logs from ${remtok[0]} \(remote path ${remtok[1]}\)
 
 	for DATE in "${LDAYS[@]}"; do
-		scp $remote/dhus-${DATE}.log "${WRKLOGS}/dhus-${DATE}.log.${remtok[0]}"
-		cat "${WRKLOGS}/dhus-${DATE}.log.${remtok[0]}" >> "${WRKLOGS}/dhus-${DATE}.log"
+		scp $remote/dhus-${DATE}.log* "${WRKLOGS}/dhus-${DATE}.log.${remtok[0]}"
+# TODO		anycat "${WRKLOGS}/dhus-${DATE}.log.${remtok[0]}" >> "${WRKLOGS}/dhus-${DATE}.log" # This line is more generic but the `egrep` version bellow reduces disk usage considerably.
+		anycat "${WRKLOGS}/dhus-${DATE}.log.${remtok[0]}" | grep -E '(download.*by.*user.*completed)|(successfully.*synchronized.*from.*http.*)' >> "${WRKLOGS}/dhus-${DATE}.log"
 		rm "${WRKLOGS}/dhus-${DATE}.log.${remtok[0]}"
 #		ssh ${remtok[0]} "cat ${remtok[1]}/dhus-${DATE}.log" >> "${WRKLOGS}/dhus-${DATE}.log"
 	done
@@ -235,18 +256,18 @@ echo '[done]'
 ##########################################
 # Step 45: Encrypt
 
-mkdir "${YEAR}w${WEEK}_reports"
+mkdir "${YEAR}${WEEK}_reports"
 
-cp "${XLSBASE}" "${YEAR}w${WEEK}_reports/"
-tar cvvf ./${YEAR}w${WEEK}_reports.tar ${YEAR}w${WEEK}_reports
-gzip ${YEAR}w${WEEK}_reports.tar
+cp "${XLSBASE}" "${YEAR}${WEEK}_reports/"
+tar cvvf ./${YEAR}${WEEK}_reports.tar ${YEAR}${WEEK}_reports
+gzip ${YEAR}${WEEK}_reports.tar
 
 ##########################################
 # Step 50: Upload to Jira
 
 if [ $DRY -eq 0 ]; then
 
-	curl -D- --netrc -X POST -H "X-Atlassian-Token: nocheck" -F "file=@${WRKLOGS}/${YEAR}w${WEEK}_reports.tar.gz" "${JISSUE}"
+	curl -D- --netrc -X POST -H "X-Atlassian-Token: nocheck" -F "file=@${WRKLOGS}/${YEAR}${WEEK}_reports.tar.gz" ${XTRAARG} "${JISSUE}"
 
 fi
 
@@ -257,4 +278,6 @@ echo Removing temporary files from ${WRKLOGS}
 
 #TODO: Actually remove files
 
+cd "${WRKD}"
+#rm -rf logs.$$
 
