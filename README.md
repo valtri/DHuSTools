@@ -29,6 +29,10 @@ Iterate over multiple instances of DHuS, collect synchronizer settings, compile 
 
 Accept footprint, iterate over past months and see what capacity it would take to store data for that footprint. The script produces a CSV by months, suitable for further processing with spreadsheet pivot tables. This is to easily determine what capacity it takes to support a user group interested in a specific geographical area.
 
+## deleted-identify.sh
+
+Check products deleted from upstram DHuS instance since a given date, and check whether they are present in the downstream instance. Finally produce a list of products that _might_ require deletion from downstream.
+
 # Gist
 
 The `gist` folder contains short snippets of code, that illustrate some frequently performed actions. They are intended as examples, often can be pasted into your console, but there is no attribute handling, checks, cleanup, et cetera.
