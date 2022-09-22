@@ -10,13 +10,14 @@ parser.add_argument('-u', '--url', type=str, required=True,
 args = parser.parse_args()
 
 f = json.load(sys.stdin)
-if 'assets' in f:
-    f.pop('assets')
-links = f.setdefault('links', [])
-for link in links:
-    if 'rel' in link and link['rel'] == 'self':
-        link['type'] = 'application/zip'
-        # a = urlparse(link['href'])
-        # link['href'] = args.url + os.path.basename(a.path)
-        link['href'] = args.url
+f['assets'] = {
+    'safe-archive': {
+        'href': args.url,
+        'type': 'application/zip',
+        'roles': [
+          'metadata',
+        ],
+    },
+}
+
 print('%s' % json.dumps(f, indent=2))
