@@ -4,13 +4,14 @@
 ID="$1"
 HOST="https://dhr1.cesnet.cz/"
 declare -A COLLECTION
-COLLECTION["S2"]="https://resto.c-scale.zcu.cz/collections/S2-experimental"
-COLLECTION["S1"]="https://resto.c-scale.zcu.cz/collections/S1-experimental"
-COLLECTION["S3"]="https://resto.c-scale.zcu.cz/collections/S3-experimental"
-COLLECTION["S5"]="https://resto.c-scale.zcu.cz/collections/S5-experimental"
+COLLECTION["S2"]="https://resto-test.c-scale.zcu.cz/collections/S2"
+COLLECTION["S1"]="https://resto-test.c-scale.zcu.cz/collections/S1"
+COLLECTION["S3"]="https://resto-test.c-scale.zcu.cz/collections/S3"
+COLLECTION["S5"]="https://resto-test.c-scale.zcu.cz/collections/S5"
 TMP="/tmp"
 SUCCPREFIX="/var/tmp/register-stac-success-"
 ERRPREFIX="/var/tmp/register-stac-error-"
+BASEURL="https://ip-147-251-21-170.flt.cloud.muni.cz/api/data/"
 
 ######################################
 #
@@ -30,6 +31,16 @@ RUNDATE=`date +%Y-%m-%d`
 # Get metadata from DHuS Database
 #
 ######################################
+
+# TITLE.zip to ID
+arg_title="${ID}"
+BN=`echo $arg_title | sed 's/\.[^.]*$//'` # this strips extensions such as .ZIP or .SAFE
+
+ID=$(curl -s -n --silent ${HOST}/odata/v1/Products?%24format=text/csv\&%24select=Id\&%24filter=Name%20eq%20%27$BN%27 | tail -n 1 | sed 's/\r//' )
+if [ "$ID" == 'Id' -o "$ID" == "" ]; then
+	>&2 echo Product with name \"$BN\" not found
+exit 1
+fi
 
 XML=`curl -n -o - "${HOST}odata/v1/Products(%27${ID}%27)/Nodes"`
 TITLE=`echo "${XML}" | sed "s/.*<entry>.*<link href=.Nodes('\([^']*\).*/\1/"`
@@ -115,18 +126,7 @@ fi
 
 file=`ls *.json | head -n 1`
 printf "\n" >> "$file" # Poor man's hack to make sure `read` gets all lines
-cat "$file" | while IFS= read line; do
-	if [[ "$line" =~ .*\"href\":.*\.(SAFE|nc)\".* ]]; then # TODO: Less fragile code
-		path=`echo "$line" | sed 's/^[^"]*"href":[^"]*"//' | sed 's/",$//'`
-		LEAD=`echo "$line" | sed 's/"href":.*/"href":/'`
-		URL="${PRODUCTURL}/Nodes(%27$(echo $path | sed "s|^\.*\/*||" | sed "s|\/|%27)/Nodes(%27|g")%27)/%24value"
-		echo "$LEAD \"${URL}\"," >> "new_${file}"
-
-	else # No change
-		echo "${line}" >> "new_${file}"
-	fi
-done
-
+"${ORIGDIR}/stac-modifier.py" -u "${BASEURL}${arg_title}" < "$file" > "new_${file}"
 
 ######################################
 #
